@@ -52,29 +52,57 @@
   let shown = 0, last = start;
 
   const { Engine, Bodies, Body, Composite } = Matter;
-  const CW = 44, CH = 24;
+  const CW = 48, CH = 32;
   const BELT_SPEED = 20;
   const BELT_H = 14;
-  const SPAWN_SKEW = 3;
+  const SPAWN_SKEW = 2;
   const STEP = 1000 / 60;
 
-  const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 24">
-    <g fill="#f3ead8" stroke="#8a6d4b" stroke-width="1">
-      <circle cx="37" cy="8" r="3.6"/><circle cx="39" cy="15" r="3.6"/>
-      <rect x="22" y="9" width="17" height="5" rx="2" stroke="none"/>
+  const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 32">
+    <defs>
+      <radialGradient id="skin" cx="0.5" cy="0.5" r="0.6">
+        <stop offset="0" stop-color="#eeb262"/>
+        <stop offset="0.55" stop-color="#d9873a"/>
+        <stop offset="1" stop-color="#8a4011"/>
+      </radialGradient>
+      <radialGradient id="leg" cx="0.5" cy="0.5" r="0.65">
+        <stop offset="0" stop-color="#f0b766"/>
+        <stop offset="0.6" stop-color="#c8742b"/>
+        <stop offset="1" stop-color="#7e3c10"/>
+      </radialGradient>
+    </defs>
+    <g stroke="#5e2a08" stroke-width="0.8" stroke-linejoin="round">
+      <path d="M29 18 C29.5 12 33 7.5 37 5 C39.5 3.5 42 5 41 7.5 C39.5 11 37 15.5 34 19.5 Z" fill="#9c5018"/>
+      <circle cx="39.4" cy="4.6" r="2" fill="#e8dcc4" stroke="#8a6d4b"/>
+      <path d="M2.5 21 C1.5 13 9 8 19 7.5 C28 7 36 10 39 16 C41 21 38 27 30 29 C20 31.5 5.5 30 2.5 21 Z" fill="url(#skin)"/>
+      <path d="M27 20 C27 13 33 9 38 8 C41 7.5 43 9.5 41.5 12 C39.5 15.5 36 20 32 23 C30 24 27 23 27 20 Z" fill="url(#leg)"/>
+      <circle cx="41.2" cy="8.4" r="2.2" fill="#f3ead8" stroke="#8a6d4b"/>
+      <path d="M6.5 18.5 C9 15 15 13.8 21 15 C18.5 16 16 18 14.5 20.5 C11.5 22 8 21.5 6.5 18.5 Z" fill="#c67430" stroke-width="0.6"/>
     </g>
-    <path d="M2 12 C2 3 13 1 21 5 C25 7 27 10 27 12 C27 15 24 18 20 20 C12 24 2 21 2 12 Z"
-          fill="#c8742b" stroke="#7a3e10" stroke-width="1.2"/>
-    <path d="M7 9 C10 6 15 5 19 7" fill="none" stroke="#e9a45c" stroke-width="2" stroke-linecap="round"/>
+    <path d="M38.2 5.6 L40.3 8.6 M40 4.4 L42.4 7.4" stroke="#fffaf0" stroke-width="0.9" stroke-linecap="round"/>
+    <path d="M10 18 C12 16.5 15 16 17.5 16" fill="none" stroke="#e9a45c" stroke-width="0.8" stroke-linecap="round"/>
+    <g fill="#7a3a0e" opacity="0.4">
+      <circle cx="13" cy="25" r="0.7"/><circle cx="18.5" cy="26.5" r="0.6"/><circle cx="23.5" cy="24" r="0.7"/>
+      <circle cx="7" cy="23.5" r="0.5"/><circle cx="21" cy="12.5" r="0.5"/><circle cx="15" cy="11.5" r="0.4"/><circle cx="26" cy="27" r="0.5"/>
+    </g>
   </svg>`;
-  const sprite = new Image();
-  sprite.src = 'data:image/svg+xml,' + encodeURIComponent(SVG);
+  const svgImage = new Image();
+  svgImage.src = 'data:image/svg+xml,' + encodeURIComponent(SVG);
+  const sprite = document.createElement('canvas');
+  function bakeSprite() {
+    if (!svgImage.complete) return;
+    const scale = (window.devicePixelRatio || 1) * 2;
+    sprite.width = CW * scale; sprite.height = CH * scale;
+    sprite.getContext('2d').drawImage(svgImage, 0, 0, sprite.width, sprite.height);
+  }
+  svgImage.onload = bakeSprite;
 
   const cv = document.getElementById('pile'), ctx = cv.getContext('2d');
   const engine = Engine.create({ enableSleeping: true, positionIterations: 12, velocityIterations: 8 });
   Matter.Sleeping._motionSleepThreshold = 0.4;
   const IMPACT_KEEP = 0.2;
   const SQUASH_REF = 15;
+  const SLUMP = 0.01;
   let W, H, belt, wall, chickens = [], acc = 0, beltOffset = 0;
 
   function resize() {
@@ -83,6 +111,7 @@
     cv.width = W * dpr; cv.height = H * dpr;
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    bakeSprite();
 
     if (belt) Composite.remove(engine.world, [belt, wall]);
     const t = 100;
@@ -97,12 +126,16 @@
   function dropChicken() {
     const x = CW / 2 + Math.random() ** SPAWN_SKEW * (W - CW), y = -CW;
     const opts = { friction: 0.9, frictionStatic: 1, restitution: 0, slop: 0.02 };
-    const meat = { ...opts, density: 0.0035 }, bone = { ...opts, density: 0.0005 };
+    const meat = { ...opts, density: 0.0018 }, leg = { ...opts, density: 0.0012 };
+    const ellipse = Array.from({ length: 10 }, (_, i) => {
+      const a = i / 10 * Math.PI * 2;
+      return { x: x - 3 + 19.5 * Math.cos(a), y: y + 3 + 11.8 * Math.sin(a) };
+    });
     const body = Body.create({
       parts: [
-        Bodies.polygon(x - 7.5, y, 7, 11, meat),
-        Bodies.rectangle(x + 8, y + 0.5, 22, 5, bone),
-        Bodies.polygon(x + 16, y + 0.5, 5, 5, bone),
+        Bodies.fromVertices(x - 3, y + 3, [ellipse], meat),
+        Bodies.rectangle(x + 11, y - 3, 15, 7, { ...leg, angle: -0.8 }),
+        Bodies.polygon(x + 16.5, y - 9, 6, 3, leg),
       ],
       ...opts,
       frictionAir: 0.01,
@@ -136,7 +169,12 @@
       if (!pair.isActive) continue;
       resting.add(pair.bodyA.parent).add(pair.bodyB.parent);
     }
-    for (const c of chickens) if (c.isSleeping || resting.has(c)) Body.translate(c, { x: dx, y: 0 });
+    for (const c of chickens) {
+      if (c.isSleeping) { Body.translate(c, { x: dx, y: 0 }); continue; }
+      if (!resting.has(c)) continue;
+      Body.translate(c, { x: dx, y: 0 });
+      Body.setAngularVelocity(c, c.angularVelocity - SLUMP * Math.sin(2 * c.angle));
+    }
   }
 
   function drain() {
@@ -181,9 +219,8 @@
   function tick(now) {
     const total = Math.floor((now - start) / 1000 * RATE);
 
-    const newOnes = total - shown;
-    for (let i = 0; i < Math.min(newOnes, 10); i++) dropChicken();
-    shown = total;
+    if (now - last > 250) shown = total;
+    for (; shown < total; shown++) dropChicken();
     countEl.textContent = fmt.format(total);
 
     const midnight = new Date();
